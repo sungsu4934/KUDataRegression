@@ -146,7 +146,7 @@ class TemporalAttentionDecoder(nn.Module):
         return y_Tp1
 
 
-# Overall DARNN
+# Overall DARNN yyyy
 class DARNN(nn.Module):
     """
     Initialize DARNN Class
