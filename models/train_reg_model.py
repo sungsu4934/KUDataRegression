@@ -44,7 +44,7 @@ class Train_Test():
 
         self.x_max, self.x_min, self.y_max, self.y_min  = mr.get_scaling_parameter(self.train_data)
 
-    def train(self, model, dataloaders, criterion, num_epochs, optimizer, scheduler):
+    def train(self, model, dataloaders, criterion, num_epochs, optimizer):
         """
         Train the model
 
@@ -62,9 +62,6 @@ class Train_Test():
 
         :param optimizer: optimizer used in training
         :type optimizer: optimizer
-
-        :param scheduler: Learning rate Scheduler
-        :type scheduler: torch.optim.lr_scheduler
 
         :return: trained model
         :rtype: model
@@ -111,9 +108,6 @@ class Train_Test():
                         if phase == 'train':
                             loss.backward()
                             optimizer.step()
-
-                    # scheduler 업데이트
-                    scheduler.step()
 
                     # batch내 loss를 축적함
                     running_loss += loss.item() * inputs.size(0)

@@ -112,7 +112,7 @@ class TemporalAttentionDecoder(nn.Module):
         d_tm1 = torch.zeros((encoded_inputs.size(0), self.decoder_hidden_size)).cuda() # out : (128, 64) - decoder hidden state
         s_prime_tm1 = torch.zeros((encoded_inputs.size(0), self.decoder_hidden_size)).cuda() # out : (128, 64) - cell state
         
-        for t in range(self.T):
+        for t in range(self.timestep):
             
             #concatenate hidden states
             d_s_prime_concat = torch.cat((d_tm1, s_prime_tm1), dim=1) # out : (128, 128)
@@ -146,7 +146,7 @@ class TemporalAttentionDecoder(nn.Module):
         return y_Tp1
 
 
-# Overall DARNN yyyy
+# Overall DARNN
 class DARNN(nn.Module):
     """
     Initialize DARNN Class
