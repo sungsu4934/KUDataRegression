@@ -3,3 +3,5 @@
 /old
 __pycache__/
 *.py[cod]
+.my_env
+/my_env
