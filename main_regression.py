@@ -143,9 +143,8 @@ class Regression():
         dataloaders_dict = {'train': self.train_loader, 'val': self.valid_loader}
         criterion = nn.MSELoss()
         optimizer = optim.Adam(init_model.parameters(), lr=self.parameter['lr'])
-        scheduler = optim.lr_scheduler.StepLR(optimizer, 20, gamma=0.9)
 
-        best_model = self.trainer.train(init_model, dataloaders_dict, criterion, self.parameter['num_epochs'], optimizer, scheduler)
+        best_model = self.trainer.train(init_model, dataloaders_dict, criterion, self.parameter['num_epochs'], optimizer)
 
         return best_model
 
