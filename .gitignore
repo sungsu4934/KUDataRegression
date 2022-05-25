@@ -1,0 +1,5 @@
+# dotenv environment variables file
+.old
+/old
+__pycache__/
+*.py[cod]
