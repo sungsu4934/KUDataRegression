@@ -100,6 +100,7 @@ class Train_Test():
 
                         # input을 model에 넣어 output을 도출한 역정규화 후, loss를 계산함
                         outputs = model(inputs, y_hist)
+                        outputs = outputs.squeeze(1)
                         outputs = outputs * (self.y_max - self.y_min) + self.y_min
                         labels = labels * (self.y_max - self.y_min) + self.y_min
                         loss = criterion(outputs, labels)
