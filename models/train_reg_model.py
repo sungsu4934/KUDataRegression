@@ -69,6 +69,8 @@ class Train_Test():
 
         since = time.time() 
 
+        val_loss_history = []
+
         best_loss = 999999999
         best_model_wts = copy.deepcopy(model.state_dict()) ##### 모델의 초기 Weight값 (각 Layer 별 초기 Weight값이 저장되어 있음)
 
@@ -87,10 +89,10 @@ class Train_Test():
                 running_total = 0
 
                 # training과 validation 단계에 맞는 dataloader에 대하여 학습/검증 진행
-                for inputs, y_hist, labels in dataloaders[phase]:
+                for inputs, targets, y_hist  in dataloaders[phase]:
                     inputs = inputs.to(self.parameter['device'])
                     y_hist = y_hist.to(self.parameter['device'])
-                    labels = labels.to(self.parameter['device'])
+                    targets = targets.to(self.parameter['device'])
                     
                     # parameter gradients를 0으로 설정
                     optimizer.zero_grad()
@@ -102,8 +104,8 @@ class Train_Test():
                         outputs = model(inputs, y_hist)
                         outputs = outputs.squeeze(1)
                         outputs = outputs * (self.y_max - self.y_min) + self.y_min
-                        labels = labels * (self.y_max - self.y_min) + self.y_min
-                        loss = criterion(outputs, labels)
+                        targets = targets * (self.y_max - self.y_min) + self.y_min
+                        loss = criterion(outputs, targets)
 
                         # backward (optimize): training 단계에서만 수행
                         if phase == 'train':
@@ -112,7 +114,7 @@ class Train_Test():
 
                     # batch내 loss를 축적함
                     running_loss += loss.item() * inputs.size(0)
-                    running_total += labels.size(0)
+                    running_total += targets.size(0)
 
                 # epoch의 loss 및 accuracy 도출
                 epoch_loss = running_loss / running_total
@@ -125,6 +127,9 @@ class Train_Test():
                 if phase == 'val' and epoch_loss < best_loss:
                     best_loss = epoch_loss
                     best_model_wts = copy.deepcopy(model.state_dict())
+                if phase == 'val':
+                    val_loss_history.append(epoch_loss)
+
 
         # 전체 학습 시간 계산 (학습이 완료된 후)
         time_elapsed = time.time() - since
@@ -160,25 +165,25 @@ class Train_Test():
         with torch.no_grad():
 
             preds = []
-            targets = []
+            y_true = []
             criterion = nn.MSELoss()
 
-            for inputs, y_hist, labels in test_loader:
+            for inputs, targets, y_hist  in test_loader:
                 inputs = inputs.to(self.parameter['device'])
                 y_hist = y_hist.to(self.parameter['device'])
-                labels = labels
+                targets = targets.to(self.parameter['device'])
 
                 # forward
                 pred = model(inputs, y_hist)
                 pred = pred * (self.y_max - self.y_min) + self.y_min
-                labels = labels * (self.y_max - self.y_min) + self.y_min
+                targets = targets * (self.y_max - self.y_min) + self.y_min
 
                 preds.extend(pred.detach().cpu().numpy())
-                targets.extend(labels.detach().cpu().numpy())
+                y_true.extend(targets.detach().cpu().numpy())
 
             preds = torch.tensor(preds).reshape(-1)
-            targets = torch.tensor(targets)
+            y_true = torch.tensor(y_true)
             
-            mse = criterion(preds, targets).item()
+            mse = criterion(preds, y_true).item()
        
         return preds, mse

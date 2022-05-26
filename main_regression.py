@@ -86,7 +86,6 @@ class Regression():
         
         self.model = config['model']
         self.parameter = config['parameter']
-        self.timestep = self.parameter['timestep']
 
         self.train_data = train_data
         self.test_data = test_data
@@ -95,7 +94,7 @@ class Regression():
         self.train_loader, self.valid_loader, self.test_loader = self.get_loaders(train_data=self.train_data,
                                                                                     test_data=self.test_data,
                                                                                     batch_size=self.parameter['batch_size'],
-                                                                                    timestep = self.timestep)
+                                                                                    timestep=self.parameter['timestep'])
         
         # build trainer
         self.trainer = Train_Test(self.config, self.train_data, self.train_loader, self.valid_loader, self.test_loader)
@@ -177,7 +176,7 @@ class Regression():
         :return: prediction probabilities
         :rtype: numpy array
 
-        :return: test accuracy
+        :return: test mse
         :rtype: float
         """
 
@@ -224,11 +223,11 @@ class Regression():
 
         # dataloader 구축
         datasets = []
-        for dataset in [(x_train, y_hist_train, y_train), (x_valid, y_hist_valid, y_valid), (x_test, y_hist_test, y_test)]:
+        for dataset in [(x_train, y_train, y_hist_train), (x_valid, y_valid, y_hist_valid), (x_test, y_test, y_hist_test)]:
             x_data = dataset[0]
-            y_hist_data = dataset[1]
-            y_data = dataset[2]
-            datasets.append(torch.utils.data.TensorDataset(torch.Tensor(x_data), torch.Tensor(y_hist_data), torch.Tensor(y_data)))
+            y_data = dataset[1]
+            y_hist_data = dataset[2]
+            datasets.append(torch.utils.data.TensorDataset(torch.Tensor(x_data), torch.Tensor(y_data), torch.Tensor(y_hist_data)))
             
         trainset, validset, testset = datasets[0], datasets[1], datasets[2]
         train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True)
