@@ -3,7 +3,6 @@ import torch.nn.functional as F
 
 from torch import nn
 
-
 # InputAttention Mechanism (Encoder)
 class InputAttentionEncoder(nn.Module):
     def __init__(self, input_size, encoder_hidden_size, timestep, stateful=False):
@@ -22,6 +21,9 @@ class InputAttentionEncoder(nn.Module):
         :param stateful: decides whether to initialize cell state of new time window with values of the last cell state
                          of previous time window or to initialize it with zeros
         :type config: Boolean    
+
+        return encoded input
+        rtype: (batch_size, timestep, encoder_hidden_size) tensor
         """
 
         super(self.__class__, self).__init__()
@@ -36,6 +38,7 @@ class InputAttentionEncoder(nn.Module):
         self.U_e = nn.Linear(self.timestep, self.timestep, bias=False) # 16 -> 16
         self.v_e = nn.Linear(self.timestep, 1, bias=False) # 16 -> 1
     
+
     def forward(self, inputs): # inputs : batch_x (128, 16, 81)
         encoded_inputs = torch.zeros((inputs.size(0), self.timestep, self.encoder_hidden_size)).cuda() ### out: (128, 16, 64) <- Encoder의 Input 초기화
         
@@ -84,6 +87,9 @@ class TemporalAttentionDecoder(nn.Module):
         :param stateful: decides whether to initialize cell state of new time window with values of the last cell state
                          of previous time window or to initialize it with zeros
         type config: Boolean
+
+        return encoded input
+        rtype: (batch_size, 1) tensor
         """
 
         super(self.__class__, self).__init__()
@@ -106,13 +112,14 @@ class TemporalAttentionDecoder(nn.Module):
         self.W_y = nn.Linear(self.decoder_hidden_size + self.encoder_hidden_size, self.decoder_hidden_size) # 128 --> 64
         self.v_y = nn.Linear(self.decoder_hidden_size, 1) # 64 --> 1
         
+
     def forward(self, encoded_inputs, y): # encoded_inputs : (128, 16, 64) // y(batch_y_h) : (128, 16, 1)
         
         #initializing hidden states
         d_tm1 = torch.zeros((encoded_inputs.size(0), self.decoder_hidden_size)).cuda() # out : (128, 64) - decoder hidden state
         s_prime_tm1 = torch.zeros((encoded_inputs.size(0), self.decoder_hidden_size)).cuda() # out : (128, 64) - cell state
         
-        for t in range(self.timestep):
+        for t in range(self.timestep-1):
             
             #concatenate hidden states
             d_s_prime_concat = torch.cat((d_tm1, s_prime_tm1), dim=1) # out : (128, 128)
@@ -163,17 +170,25 @@ class DARNN(nn.Module):
     :param timestep: number of timesteps
     :type config: int
 
-    :param stateful: decides whether to initialize cell state of new time window with values of the last cell state
-                     of previous time window or to initialize it with zeros
+    :param stateful_encoder: decides whether to initialize cell state of new time window with values of the last cell state
+                             of previous time window or to initialize it with zeros
     :type config: Boolean    
+
+    :param stateful_decoder: decides whether to initialize cell state of new time window with values of the last cell state
+                             of previous time window or to initialize it with zeros
+    :type config: Boolean    
+
+    return predicted value
+    rtype: (batch_size, 1) tensor
     """
-    
+
     def __init__(self, input_size, encoder_hidden_size, decoder_hidden_size, timestep, stateful_encoder=False, stateful_decoder=False):
         
         super(self.__class__, self).__init__()
         self.encoder = InputAttentionEncoder(input_size, encoder_hidden_size, timestep, stateful_encoder).cuda()
         self.decoder = TemporalAttentionDecoder(encoder_hidden_size, decoder_hidden_size, timestep, stateful_decoder).cuda()
         
+
     def forward(self, X_history, y_history): # X_history : batch_x // y_history : batch_y_h
         
         out = self.decoder(self.encoder(X_history), y_history) # (128, 1)

@@ -9,7 +9,6 @@ import torch.optim as optim
 
 import main_regression as mr
 
-
 class Train_Test():
     def __init__(self, config, train_data, train_loader, valid_loader, test_loader): ##### config는 jupyter 파일을 참고
         """
@@ -42,7 +41,6 @@ class Train_Test():
         self.parameter = self.config['parameter']
         self.input_size = self.parameter['input_size']
 
-        self.x_max, self.x_min, self.y_max, self.y_min  = mr.get_scaling_parameter(self.train_data)
 
     def train(self, model, dataloaders, criterion, num_epochs, optimizer):
         """
@@ -88,33 +86,58 @@ class Train_Test():
                 running_loss = 0.0
                 running_total = 0
 
-                # training과 validation 단계에 맞는 dataloader에 대하여 학습/검증 진행
-                for inputs, targets, y_hist  in dataloaders[phase]:
-                    inputs = inputs.to(self.parameter['device'])
-                    y_hist = y_hist.to(self.parameter['device'])
-                    targets = targets.to(self.parameter['device'])
-                    
-                    # parameter gradients를 0으로 설정
-                    optimizer.zero_grad()
+                if self.parameter['need_yhist'] == True:
+                    # training과 validation 단계에 맞는 dataloader에 대하여 학습/검증 진행
+                    for inputs, targets, y_hist in dataloaders[phase]:
+                        inputs = inputs.to(self.parameter['device'])
+                        targets = targets.to(self.parameter['device'])
+                        y_hist = y_hist.to(self.parameter['device'])
+                        
+                        # parameter gradients를 0으로 설정
+                        optimizer.zero_grad()
 
-                    # training 단계에서만 gradient 업데이트 수행
-                    with torch.set_grad_enabled(phase == 'train'):
+                        # training 단계에서만 gradient 업데이트 수행
+                        with torch.set_grad_enabled(phase == 'train'):
 
-                        # input을 model에 넣어 output을 도출한 역정규화 후, loss를 계산함
-                        outputs = model(inputs, y_hist)
-                        outputs = outputs.squeeze(1)
-                        outputs = outputs * (self.y_max - self.y_min) + self.y_min
-                        targets = targets * (self.y_max - self.y_min) + self.y_min
-                        loss = criterion(outputs, targets)
+                            # input을 model에 넣어 output을 도출한 역정규화 후, loss를 계산함
+                            outputs = model(inputs, y_hist)
+                            outputs = outputs.squeeze(1)
+                            loss = criterion(outputs, targets)
 
-                        # backward (optimize): training 단계에서만 수행
-                        if phase == 'train':
-                            loss.backward()
-                            optimizer.step()
+                            # backward (optimize): training 단계에서만 수행
+                            if phase == 'train':
+                                loss.backward()
+                                optimizer.step()
 
-                    # batch내 loss를 축적함
-                    running_loss += loss.item() * inputs.size(0)
-                    running_total += targets.size(0)
+                        # batch내 loss를 축적함
+                        running_loss += loss.item() * inputs.size(0)
+                        running_total += targets.size(0)
+
+                else:
+                    # training과 validation 단계에 맞는 dataloader에 대하여 학습/검증 진행
+                    for inputs, targets in dataloaders[phase]:
+                        inputs = inputs.to(self.parameter['device'])
+                        targets = targets.to(self.parameter['device'])
+                        
+                        # parameter gradients를 0으로 설정
+                        optimizer.zero_grad()
+
+                        # training 단계에서만 gradient 업데이트 수행
+                        with torch.set_grad_enabled(phase == 'train'):
+
+                            # input을 model에 넣어 output을 도출한 역정규화 후, loss를 계산함
+                            outputs = model(inputs)
+                            outputs = outputs.squeeze(1)
+                            loss = criterion(outputs, targets)
+
+                            # backward (optimize): training 단계에서만 수행
+                            if phase == 'train':
+                                loss.backward()
+                                optimizer.step()
+
+                        # batch내 loss를 축적함
+                        running_loss += loss.item() * inputs.size(0)
+                        running_total += targets.size(0)
 
                 # epoch의 loss 및 accuracy 도출
                 epoch_loss = running_loss / running_total
@@ -127,9 +150,9 @@ class Train_Test():
                 if phase == 'val' and epoch_loss < best_loss:
                     best_loss = epoch_loss
                     best_model_wts = copy.deepcopy(model.state_dict())
+
                 if phase == 'val':
                     val_loss_history.append(epoch_loss)
-
 
         # 전체 학습 시간 계산 (학습이 완료된 후)
         time_elapsed = time.time() - since
@@ -141,6 +164,7 @@ class Train_Test():
 
         return model
 
+
     def test(self, model, test_loader):
         """
         Predict classes for test dataset based on the trained model
@@ -151,11 +175,11 @@ class Train_Test():
         :param test_loader: test dataloader
         :type test_loader: DataLoader
 
-        :return: predicted classes
+        :return: predicted values
         :rtype: numpy array
 
-        :return: prediction probabilities
-        :rtype: numpy array
+        :return: MSE
+        :rtype: float
         """
 
         model.eval()   # 모델을 validation mode로 설정
@@ -168,18 +192,26 @@ class Train_Test():
             y_true = []
             criterion = nn.MSELoss()
 
-            for inputs, targets, y_hist  in test_loader:
-                inputs = inputs.to(self.parameter['device'])
-                y_hist = y_hist.to(self.parameter['device'])
-                targets = targets.to(self.parameter['device'])
+            if self.parameter['need_yhist'] == True:
+                for inputs, targets, y_hist in test_loader:
+                    inputs = inputs.to(self.parameter['device'])
+                    targets = targets.to(self.parameter['device'])
+                    y_hist = y_hist.to(self.parameter['device'])
 
-                # forward
-                pred = model(inputs, y_hist)
-                pred = pred * (self.y_max - self.y_min) + self.y_min
-                targets = targets * (self.y_max - self.y_min) + self.y_min
+                    pred = model(inputs, y_hist)
 
-                preds.extend(pred.detach().cpu().numpy())
-                y_true.extend(targets.detach().cpu().numpy())
+                    preds.extend(pred.detach().cpu().numpy())
+                    y_true.extend(targets.detach().cpu().numpy())
+
+            else:
+                for inputs, targets in test_loader:
+                    inputs = inputs.to(self.parameter['device'])
+                    y_hist = y_hist.to(self.parameter['device'])
+
+                    pred = model(inputs)
+
+                    preds.extend(pred.detach().cpu().numpy())
+                    y_true.extend(targets.detach().cpu().numpy())
 
             preds = torch.tensor(preds).reshape(-1)
             y_true = torch.tensor(y_true)
