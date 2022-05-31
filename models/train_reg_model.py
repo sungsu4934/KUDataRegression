@@ -2,7 +2,12 @@ import time
 import copy
 import torch
 import torch.nn as nn
+from torch.nn import functional as F
 
+class R2Loss(nn.Module):
+    def forward(self, y_pred, y):
+        var_y = torch.var(y, unbiased=False)
+        return 1.0 - F.mse_loss(y_pred, y, reduction="mean") / var_y
 
 class Train_Test():
     def __init__(self, config, train_data, train_loader, valid_loader, test_loader): ##### config는 jupyter 파일을 참고
@@ -161,7 +166,7 @@ class Train_Test():
         # 전체 학습 시간 계산 (학습이 완료된 후)
         time_elapsed = time.time() - since
         print('\nTraining complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
-        print('Best val Loss: {:4f}, r2 : {:4f}'.format(best_loss, best_loss_r2))
+        print('Best val Loss: {:.4f}, r2 : {:.4f}'.format(best_loss, best_loss_r2))
 
         # validation loss가 가장 낮았을 때의 best model 가중치를 불러와 best model을 구축함
         model.load_state_dict(best_model_wts)
@@ -194,7 +199,7 @@ class Train_Test():
 
             preds = []
             y_true = []
-            criterion = nn.MSELoss()
+            criterion = [nn.MSELoss(), R2Loss()]
 
             if self.parameter['need_yhist'] == True:
                 for inputs, targets, y_hist in test_loader:
@@ -220,7 +225,7 @@ class Train_Test():
             preds = torch.tensor(preds).reshape(-1)
             y_true = torch.tensor(y_true)
             
-            mse = criterion[0](preds, y_true).item()
-            r2 = criterion[1](preds, y_true).item()
+            mse = (criterion[0](preds, y_true)).item()
+            r2 = (criterion[1](preds, y_true)).item()
        
         return preds, mse, r2
