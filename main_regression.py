@@ -1,17 +1,30 @@
 import numpy as np
-
 import torch
 import torch.nn as nn
+from torch.nn import functional as F
 import torch.optim as optim
 
-from models.DARNN import DARNN
+from models.lstm_fcn import LSTM_FCNs
+from models.rnn import RNN_model
+from models.cnn_1d import CNN_1D
+from models.fc import FC
+from models.darnn import DARNN
+
 from models.train_reg_model import Train_Test
 
 import warnings
 warnings.filterwarnings('ignore')
 
+
+class R2Loss(nn.Module):
+    def forward(self, y_pred, y):
+        var_y = torch.var(y, unbiased=False)
+        return 1.0 - F.mse_loss(y_pred, y, reduction="mean") / var_y
+
+
 # 시계열 데이터 전처리
-def sequence_preprocessing(data_x, data_y, timestep, need_yhist):
+def sequence_preprocessing(data_x, data_y, timestep, need_yhist, shift_size):
+
     """
     Window slicing train/test data
 
@@ -26,35 +39,28 @@ def sequence_preprocessing(data_x, data_y, timestep, need_yhist):
 
     :param need_yhist: need y_hist or not
     :type test_data: boolean
+
+    :param shift_size: Slicing Shift Size
+    :type test_data: int
     """
-    
-    # 각 X, y_hist를 초기화
-    X = np.zeros((data_x.shape[0] - timestep + 1, timestep, data_x.shape[1]))
-    y_hist = np.zeros((data_y.shape[0] - timestep + 1, timestep - 1, 1)) 
 
-    # X Slicing
-    t = 0
-    for k in range(data_x.shape[0] - timestep + 1):
-        for i, name in enumerate(list(data_x.columns)):
-            for j in range(timestep):
-                X[k, j, i] = data_x.loc[j+t, name]
-        t += 1
+    X = []
+    y_hist = []
+    targets = []
 
-    # target slicing
-    target = np.array(data_y[timestep-1:])
+    for start_idx in range(0, data_x.shape[0] - timestep + 1, shift_size):
+        X.append(data_x[start_idx:start_idx + timestep])
+        y_hist.append(data_y[start_idx:start_idx + timestep - 1])
+        targets.append(data_y[start_idx + timestep - 1])
 
-    # y_hist slicing
-    if need_yhist == True:
-        t = 0
-        for k in range(data_y.shape[0] - timestep + 1):
-            for j in range(timestep-1):
-                y_hist[k, j, 0] = data_y.loc[j+t]
-            t += 1
+    X = np.array(X)
+    y_hist = np.array(y_hist).reshape(-1, timestep-1, 1)
+    targets = np.array(targets)
 
-        return X, target, y_hist
+    if need_yhist == False:
+        X = X.transpose(0, 2, 1)
 
-    else:
-        return X, target
+    return X, targets, y_hist
 
 
 class Regression():
@@ -85,7 +91,8 @@ class Regression():
                                                                                     test_data=self.test_data,
                                                                                     batch_size=self.parameter['batch_size'],
                                                                                     timestep=self.parameter['timestep'],
-                                                                                    need_yhist=self.parameter['need_yhist'])
+                                                                                    need_yhist=self.parameter['need_yhist'],
+                                                                                    shift_size=self.parameter['shift_size'])
         
         # build trainer
         self.trainer = Train_Test(self.config, self.train_data, self.train_loader, self.valid_loader, self.test_loader)
@@ -100,7 +107,53 @@ class Regression():
         """
 
         # build initialized model
-        if self.model == 'DARNN':
+        if self.model == 'LSTM':
+            init_model = RNN_model(
+                rnn_type='lstm',
+                input_size=self.parameter['input_size'],
+                num_classes=self.parameter['num_classes'],
+                hidden_size=self.parameter['hidden_size'],
+                num_layers=self.parameter['num_layers'],
+                bidirectional=self.parameter['bidirectional'],
+                device=self.parameter['device']
+            )
+        elif self.model == 'GRU':
+            init_model = RNN_model(
+                rnn_type='gru',
+                input_size=self.parameter['input_size'],
+                num_classes=self.parameter['num_classes'],
+                hidden_size=self.parameter['hidden_size'],
+                num_layers=self.parameter['num_layers'],
+                bidirectional=self.parameter['bidirectional'],
+                device=self.parameter['device']
+            )
+        elif self.model == 'CNN_1D':
+            init_model = CNN_1D(
+                input_channels=self.parameter['input_size'],
+                num_classes=self.parameter['num_classes'],
+                input_seq=self.parameter['seq_len'],
+                output_channels=self.parameter['output_channels'],
+                kernel_size=self.parameter['kernel_size'],
+                stride=self.parameter['stride'],
+                padding=self.parameter['padding'],
+                drop_out=self.parameter['drop_out']
+            )
+        elif self.model == 'LSTM_FCNs':
+            init_model = LSTM_FCNs(
+                input_size=self.parameter['input_size'],
+                num_classes=self.parameter['num_classes'],
+                num_layers=self.parameter['num_layers'],
+                lstm_drop_p=self.parameter['lstm_drop_out'],
+                fc_drop_p=self.parameter['fc_drop_out']
+            )
+        elif self.model == 'FC':
+            init_model = FC(
+                representation_size=self.parameter['input_size'],
+                num_classes=self.parameter['num_classes'],
+                drop_out=self.parameter['drop_out'],
+                bias=self.parameter['bias']
+            )
+        elif self.model == 'DARNN':
             init_model = DARNN(
                 input_size = self.parameter['input_size'],
                 encoder_hidden_size = self.parameter['encoder_hidden_size'],
@@ -109,7 +162,6 @@ class Regression():
                 stateful_encoder = self.parameter['encoder_stateful'],
                 stateful_decoder = self.parameter['decoder_stateful']
             )
-
         else:
             print('Choose the model correctly')
 
@@ -133,7 +185,8 @@ class Regression():
         init_model = init_model.to(self.parameter['device'])
 
         dataloaders_dict = {'train': self.train_loader, 'val': self.valid_loader}
-        criterion = nn.MSELoss()
+        criterion = [nn.MSELoss(), R2Loss()]
+
         optimizer = optim.Adam(init_model.parameters(), lr=self.parameter['lr'])
 
         best_model = self.trainer.train(init_model, dataloaders_dict, criterion, self.parameter['num_epochs'], optimizer)
@@ -178,12 +231,12 @@ class Regression():
         init_model.load_state_dict(torch.load(best_model_path))
 
         # get prediction and accuracy
-        pred, mse = self.trainer.test(init_model, self.test_loader)
+        pred, mse, r2 = self.trainer.test(init_model, self.test_loader)
 
-        return pred, mse
+        return pred, mse, r2
 
 
-    def get_loaders(self, train_data, test_data, batch_size, timestep, need_yhist):
+    def get_loaders(self, train_data, test_data, batch_size, timestep, need_yhist, shift_size):
         """
         Get train, validation, and test DataLoaders
         
@@ -193,10 +246,10 @@ class Regression():
         :param test_data: test data with X and y
         :type test_data: dictionary
 
-        :param batch_size: batch size
-        :type batch_size: int
-
         :param timestep: timestep
+        :type timestep: int
+
+        :param batch_size: batch_size
         :type timestep: int
 
         :param timestep: need_yhist
@@ -214,8 +267,8 @@ class Regression():
 
         if need_yhist == True:
             # 데이터 전처리 수행
-            x, y, y_hist = sequence_preprocessing(x, y, timestep, need_yhist = need_yhist)
-            x_test, y_test, y_hist_test = sequence_preprocessing(x_test, y_test, timestep, need_yhist = need_yhist)
+            x, y, y_hist = sequence_preprocessing(x, y, timestep, need_yhist = need_yhist, shift_size = shift_size)
+            x_test, y_test, y_hist_test = sequence_preprocessing(x_test, y_test, timestep, need_yhist = need_yhist, shift_size = shift_size)
             
             # Train, validation Split
             n_train = int(0.8 * len(x))
@@ -224,6 +277,7 @@ class Regression():
 
             # dataloader 구축
             datasets = []
+
             for dataset in [(x_train, y_train, y_hist_train), (x_valid, y_valid, y_hist_valid), (x_test, y_test, y_hist_test)]:
                 x_data = dataset[0]
                 y_data = dataset[1]
@@ -232,8 +286,8 @@ class Regression():
 
         else:
             # 데이터 전처리 수행
-            x, y, _ = sequence_preprocessing(x, y, timestep, need_yhist = need_yhist)
-            x_test, y_test, _ = sequence_preprocessing(x_test, y_test, timestep, need_yhist = need_yhist)
+            x, y, _ = sequence_preprocessing(x, y, timestep, need_yhist = need_yhist, shift_size = shift_size)
+            x_test, y_test, _ = sequence_preprocessing(x_test, y_test, timestep, need_yhist = need_yhist, shift_size = shift_size)
             
             # Train, validation Split
             n_train = int(0.8 * len(x))
@@ -242,6 +296,7 @@ class Regression():
 
             # dataloader 구축
             datasets = []
+
             for dataset in [(x_train, y_train), (x_valid, y_valid), (x_test, y_test)]:
                 x_data = dataset[0]
                 y_data = dataset[1]

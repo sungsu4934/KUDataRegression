@@ -1,13 +1,8 @@
 import time
 import copy
-
-import numpy as np
-
 import torch
 import torch.nn as nn
-import torch.optim as optim
 
-import main_regression as mr
 
 class Train_Test():
     def __init__(self, config, train_data, train_loader, valid_loader, test_loader): ##### config는 jupyter 파일을 참고
@@ -70,6 +65,7 @@ class Train_Test():
         val_loss_history = []
 
         best_loss = 999999999
+        best_loss_r2 = 0
         best_model_wts = copy.deepcopy(model.state_dict()) ##### 모델의 초기 Weight값 (각 Layer 별 초기 Weight값이 저장되어 있음)
 
         for epoch in range(num_epochs):
@@ -85,6 +81,8 @@ class Train_Test():
 
                 running_loss = 0.0
                 running_total = 0
+                running_r2 = 0
+
 
                 if self.parameter['need_yhist'] == True:
                     # training과 validation 단계에 맞는 dataloader에 대하여 학습/검증 진행
@@ -102,7 +100,8 @@ class Train_Test():
                             # input을 model에 넣어 output을 도출한 역정규화 후, loss를 계산함
                             outputs = model(inputs, y_hist)
                             outputs = outputs.squeeze(1)
-                            loss = criterion(outputs, targets)
+                            loss = criterion[0](outputs, targets)
+                            loss_r2 = criterion[1](outputs, targets)
 
                             # backward (optimize): training 단계에서만 수행
                             if phase == 'train':
@@ -112,6 +111,7 @@ class Train_Test():
                         # batch내 loss를 축적함
                         running_loss += loss.item() * inputs.size(0)
                         running_total += targets.size(0)
+                        running_r2 += loss_r2.item() * inputs.size(0)
 
                 else:
                     # training과 validation 단계에 맞는 dataloader에 대하여 학습/검증 진행
@@ -128,7 +128,8 @@ class Train_Test():
                             # input을 model에 넣어 output을 도출한 역정규화 후, loss를 계산함
                             outputs = model(inputs)
                             outputs = outputs.squeeze(1)
-                            loss = criterion(outputs, targets)
+                            loss = criterion[0](outputs, targets)
+                            loss_r2 = criterion[1](outputs, targets)
 
                             # backward (optimize): training 단계에서만 수행
                             if phase == 'train':
@@ -138,17 +139,20 @@ class Train_Test():
                         # batch내 loss를 축적함
                         running_loss += loss.item() * inputs.size(0)
                         running_total += targets.size(0)
+                        running_r2 += loss_r2.item() * inputs.size(0)
 
                 # epoch의 loss 및 accuracy 도출
                 epoch_loss = running_loss / running_total
+                epoch_loss_r2 = running_r2 / running_total 
 
                 # log 출력
                 if epoch == 0 or (epoch + 1) % 10 == 0:
-                    print('{} Loss: {:.4f}'.format(phase, epoch_loss))
+                    print('{} Loss: {:.4f}, R2: {:.4f}'.format(phase, epoch_loss, epoch_loss_r2))
 
                 # validation 단계에서 validation loss가 감소할 때마다 best model 가중치를 업데이트함
                 if phase == 'val' and epoch_loss < best_loss:
                     best_loss = epoch_loss
+                    best_loss_r2 = epoch_loss_r2
                     best_model_wts = copy.deepcopy(model.state_dict())
 
                 if phase == 'val':
@@ -157,7 +161,7 @@ class Train_Test():
         # 전체 학습 시간 계산 (학습이 완료된 후)
         time_elapsed = time.time() - since
         print('\nTraining complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
-        print('Best val Loss: {:4f}'.format(best_loss))
+        print('Best val Loss: {:4f}, r2 : {:4f}'.format(best_loss, best_loss_r2))
 
         # validation loss가 가장 낮았을 때의 best model 가중치를 불러와 best model을 구축함
         model.load_state_dict(best_model_wts)
@@ -206,7 +210,7 @@ class Train_Test():
             else:
                 for inputs, targets in test_loader:
                     inputs = inputs.to(self.parameter['device'])
-                    y_hist = y_hist.to(self.parameter['device'])
+                    targets = targets.to(self.parameter['device'])
 
                     pred = model(inputs)
 
@@ -216,6 +220,7 @@ class Train_Test():
             preds = torch.tensor(preds).reshape(-1)
             y_true = torch.tensor(y_true)
             
-            mse = criterion(preds, y_true).item()
+            mse = criterion[0](preds, y_true).item()
+            r2 = criterion[1](preds, y_true).item()
        
-        return preds, mse
+        return preds, mse, r2
