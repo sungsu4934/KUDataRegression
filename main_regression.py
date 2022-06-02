@@ -16,6 +16,36 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
+# 스케일링을 위한 max, min 값 가져오기
+def get_scaling_parameter(train_data):
+    x = train_data['x']
+    y = train_data['y']
+
+    x_max = x.max(axis=0)
+    x_min = x.min(axis=0)
+    y_max = y.max(axis=0)
+    y_min = y.min(axis=0)
+    return x_max, x_min, y_max, y_min
+
+
+# 정규화 수행
+def scaling(train_data, test_data, x_max, x_min, y_max, y_min):
+    
+    x = train_data['x']
+    y = train_data['y']
+
+    x_test = test_data['x']
+    y_test = test_data['y']
+
+    x = (x - x_min) / (x_max - x_min)
+    y = (y - y_min) / (y_max - y_min)
+
+    x_test = (x_test - x_min) / (x_max - x_min)
+    y_test = (y_test - y_min) / (y_max - y_min) 
+    
+    return x, y, x_test, y_test
+
+
 class R2Loss(nn.Module):
     def forward(self, y_pred, y):
         var_y = torch.var(y, unbiased=False)
@@ -185,7 +215,7 @@ class Regression():
         init_model = init_model.to(self.parameter['device'])
 
         dataloaders_dict = {'train': self.train_loader, 'val': self.valid_loader}
-        criterion = [nn.MSELoss(), R2Loss()]
+        criterion = nn.MSELoss()
 
         optimizer = optim.Adam(init_model.parameters(), lr=self.parameter['lr'])
 
@@ -259,11 +289,9 @@ class Regression():
         :rtype: DataLoader
         """
 
-        # 데이터 분할
-        x = train_data['x']
-        y = train_data['y']
-        x_test = test_data['x']
-        y_test = test_data['y']
+        # 데이터 정규화
+        x_max, x_min, y_max, y_min = get_scaling_parameter(train_data)
+        x, y, x_test, y_test = scaling(train_data, test_data, x_max, x_min, y_max, y_min)
 
         if need_yhist == True:
             # 데이터 전처리 수행

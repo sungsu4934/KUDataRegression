@@ -2,12 +2,18 @@ import time
 import copy
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
+
+import main_regression as mr
 
 class R2Loss(nn.Module):
-    def forward(self, y_pred, y):
-        var_y = torch.var(y, unbiased=False)
-        return 1.0 - F.mse_loss(y_pred, y, reduction="mean") / var_y
+    @staticmethod
+    def R2_score(y_pred, y):
+        y_mean = torch.mean(y)
+        ss_tot = torch.sum((y - y_mean) ** 2)
+        ss_res = torch.sum((y - y_pred) ** 2)
+        R2 = 1 - ss_res / ss_tot
+        return R2
+
 
 class Train_Test():
     def __init__(self, config, train_data, train_loader, valid_loader, test_loader): ##### config는 jupyter 파일을 참고
@@ -41,6 +47,9 @@ class Train_Test():
         self.parameter = self.config['parameter']
         self.input_size = self.parameter['input_size']
 
+        self.R2loss = R2Loss()
+
+        self.x_max, self.x_min, self.y_max, self.y_min  = mr.get_scaling_parameter(self.train_data)
 
     def train(self, model, dataloaders, criterion, num_epochs, optimizer):
         """
@@ -88,7 +97,6 @@ class Train_Test():
                 running_total = 0
                 running_r2 = 0
 
-
                 if self.parameter['need_yhist'] == True:
                     # training과 validation 단계에 맞는 dataloader에 대하여 학습/검증 진행
                     for inputs, targets, y_hist in dataloaders[phase]:
@@ -105,8 +113,11 @@ class Train_Test():
                             # input을 model에 넣어 output을 도출한 역정규화 후, loss를 계산함
                             outputs = model(inputs, y_hist)
                             outputs = outputs.squeeze(1)
-                            loss = criterion[0](outputs, targets)
-                            loss_r2 = criterion[1](outputs, targets)
+                            outputs = outputs * (self.y_max - self.y_min) + self.y_min
+                            targets = targets * (self.y_max - self.y_min) + self.y_min
+
+                            loss = criterion(outputs, targets)
+                            loss_r2 = self.R2loss.R2_score(outputs, targets)
 
                             # backward (optimize): training 단계에서만 수행
                             if phase == 'train':
@@ -133,8 +144,11 @@ class Train_Test():
                             # input을 model에 넣어 output을 도출한 역정규화 후, loss를 계산함
                             outputs = model(inputs)
                             outputs = outputs.squeeze(1)
-                            loss = criterion[0](outputs, targets)
-                            loss_r2 = criterion[1](outputs, targets)
+                            outputs = outputs * (self.y_max - self.y_min) + self.y_min
+                            targets = targets * (self.y_max - self.y_min) + self.y_min
+
+                            loss = criterion(outputs, targets)
+                            loss_r2 = self.R2loss.R2_score(outputs, targets)
 
                             # backward (optimize): training 단계에서만 수행
                             if phase == 'train':
@@ -166,7 +180,7 @@ class Train_Test():
         # 전체 학습 시간 계산 (학습이 완료된 후)
         time_elapsed = time.time() - since
         print('\nTraining complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
-        print('Best val Loss: {:.4f}, r2 : {:.4f}'.format(best_loss, best_loss_r2))
+        print(f'Best val Loss: {round(best_loss, 4)}, r2 : {round(best_loss_r2, 4)}')
 
         # validation loss가 가장 낮았을 때의 best model 가중치를 불러와 best model을 구축함
         model.load_state_dict(best_model_wts)
@@ -199,7 +213,7 @@ class Train_Test():
 
             preds = []
             y_true = []
-            criterion = [nn.MSELoss(), R2Loss()]
+            criterion = nn.MSELoss()
 
             if self.parameter['need_yhist'] == True:
                 for inputs, targets, y_hist in test_loader:
@@ -208,6 +222,10 @@ class Train_Test():
                     y_hist = y_hist.to(self.parameter['device'])
 
                     pred = model(inputs, y_hist)
+
+                    # 역정규화 진행
+                    pred = pred * (self.y_max - self.y_min) + self.y_min
+                    targets = targets * (self.y_max - self.y_min) + self.y_min
 
                     preds.extend(pred.detach().cpu().numpy())
                     y_true.extend(targets.detach().cpu().numpy())
@@ -219,13 +237,17 @@ class Train_Test():
 
                     pred = model(inputs)
 
+                    # 역정규화 진행
+                    pred = pred * (self.y_max - self.y_min) + self.y_min
+                    targets = targets * (self.y_max - self.y_min) + self.y_min
+
                     preds.extend(pred.detach().cpu().numpy())
                     y_true.extend(targets.detach().cpu().numpy())
 
             preds = torch.tensor(preds).reshape(-1)
             y_true = torch.tensor(y_true)
             
-            mse = (criterion[0](preds, y_true)).item()
-            r2 = (criterion[1](preds, y_true)).item()
+            mse = criterion(preds, y_true).item()
+            r2 = self.R2loss.R2_score(preds, y_true).item()
        
         return preds, mse, r2
